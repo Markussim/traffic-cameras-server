@@ -1,0 +1,17 @@
+{
+  "name": "traffic-camera-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "dev": "nodemon main.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "express": "^4.19.2",
+    "nodemon": "^3.1.4",
+    "xmlbuilder": "^15.1.1"
+  }
+}

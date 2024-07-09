@@ -57,6 +57,8 @@ async function updateLatestImage() {
 
   const image = json.RESPONSE.RESULT[0].Camera[0].PhotoUrl + "?type=fullsize";
 
+  const cameraId = json.RESPONSE.RESULT[0].Camera[0].Id;
+
   // const newDate = new Date(json.RESPONSE.RESULT[0].Camera[0].PhotoTime) - 60000;
 
   const newDate = subtractMinutes(
@@ -95,7 +97,7 @@ async function updateLatestImage() {
 
   latestBuffer = response.data;
 
-  await saveImage(newBuffer, latestImageTimestamp);
+  await saveImage(newBuffer, latestImageTimestamp, cameraId);
   return true;
 }
 
@@ -104,8 +106,9 @@ function subtractMinutes(date, minutes) {
 }
 
 // Dummy function to save the image to the disk, will be replaced by S3
-async function saveImage(buffer, timestamp) {
-  const dir = "./photos";
+async function saveImage(buffer, timestamp, cameraId) {
+  const dir =
+    "./photos/" + cameraId + "/" + timestamp.toISOString().split("T")[0];
   // Create directory if it does not exist
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

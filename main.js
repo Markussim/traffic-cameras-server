@@ -3,9 +3,19 @@ const axios = require("axios");
 const xmlbuilder = require("xmlbuilder");
 const fs = require("fs");
 const path = require("path");
-const dotenv = require("dotenv").config();
+const dotenv = require("dotenv").config({ override: true });
+const AWS = require("aws-sdk");
 const app = express();
 const port = 3000;
+
+// Set up AWS S3
+AWS.config.update({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: "eu-north-1",
+});
+
+const s3 = new AWS.S3();
 
 let latestBuffer = null;
 
@@ -97,7 +107,7 @@ async function updateLatestImage() {
 
   latestBuffer = response.data;
 
-  await saveImage(newBuffer, latestImageTimestamp, cameraId);
+  await saveImageToS3(newBuffer, latestImageTimestamp, cameraId);
   return true;
 }
 
@@ -105,8 +115,8 @@ function subtractMinutes(date, minutes) {
   return new Date(date.getTime() - minutes * 60000);
 }
 
-// Dummy function to save the image to the disk, will be replaced by S3
-async function saveImage(buffer, timestamp, cameraId) {
+// Deprecated function
+async function saveImageToDisk(buffer, timestamp, cameraId) {
   const dir =
     "./photos/" + cameraId + "/" + timestamp.toISOString().split("T")[0];
   // Create directory if it does not exist
@@ -119,4 +129,28 @@ async function saveImage(buffer, timestamp, cameraId) {
   const filename = path.join(dir, `${safeTimestamp}.jpg`);
 
   fs.writeFileSync(filename, buffer);
+}
+
+async function saveImageToS3(buffer, timestamp, cameraId) {
+  const dir =
+    "photos/" + cameraId + "/" + timestamp.toISOString().split("T")[0];
+  const safeTimestamp = timestamp.toISOString().replace(/[:]/g, "-");
+  const filename = `${safeTimestamp}.jpg`;
+
+  const params = {
+    Bucket: "traffic-cameras-archive",
+    Key: `${dir}/${filename}`,
+    Body: buffer,
+    ContentType: "image/jpeg",
+  };
+
+  s3.upload(params, function (err, data) {
+    if (err) {
+      console.log("Error", err);
+    }
+
+    if (data) {
+      console.log("Upload Success");
+    }
+  });
 }

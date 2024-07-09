@@ -39,6 +39,8 @@ Ensure you have the following tools installed:
    TRAFIKVERKET_API_KEY=your_trafikverket_api_key
    ```
 
+   Alternatively, you can set these environment variables directly if running in docker.
+
 ## Usage 🚀
 
 1. Start the application

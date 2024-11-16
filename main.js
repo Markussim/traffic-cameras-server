@@ -154,31 +154,44 @@ async function searchCamera(name) {
 
   const xmlString = xml.toString();
 
-  const trafikverketResponse = await axios({
-    method: "post",
-    url: "https://api.trafikinfo.trafikverket.se/v2/data.json",
-    data: xmlString,
-    headers: {
-      "Content-Type": "application/xml",
-    },
-  });
+  try {
+    const trafikverketResponse = await axios({
+      method: "post",
+      url: "https://api.trafikinfo.trafikverket.se/v2/data.json",
+      data: xmlString,
+      headers: {
+        "Content-Type": "application/xml",
+      },
+      validateStatus: () => true, // Accept all HTTP status codes
+    });
 
-  const json = trafikverketResponse.data;
+    if (trafikverketResponse.status !== 200) {
+      console.error(
+        `Failed to search camera. Status: ${trafikverketResponse.status}`
+      );
+      return [];
+    }
 
-  if (!json?.RESPONSE?.RESULT?.[0]?.Camera?.[0]) {
-    console.log(`Invalid camera name. Camera name: ${name}`);
-    return;
+    const json = trafikverketResponse.data;
+
+    if (!json?.RESPONSE?.RESULT?.[0]?.Camera?.[0]) {
+      console.log(`Invalid camera name. Camera name: ${name}`);
+      return [];
+    }
+
+    const cameras = json?.RESPONSE?.RESULT?.[0]?.Camera?.map((camera) => ({
+      id: camera.Id,
+      name: camera.Name,
+      location: camera.Location,
+      description: camera.Description,
+      imageUrl: camera.PhotoUrl + "?type=fullsize",
+    }));
+
+    return cameras;
+  } catch (error) {
+    console.error("Error while searching for camera:", error);
+    return [];
   }
-
-  const cameras = json?.RESPONSE?.RESULT?.[0]?.Camera?.map((camera) => ({
-    id: camera.Id,
-    name: camera.Name,
-    location: camera.Location,
-    description: camera.Description,
-    imageUrl: camera.PhotoUrl + "?type=fullsize",
-  }));
-
-  return cameras;
 }
 
 async function updateLatestImage(id) {
@@ -196,79 +209,96 @@ async function updateLatestImage(id) {
 
   const xmlString = xml.toString();
 
-  const trafikverketResponse = await axios({
-    method: "post",
-    url: "https://api.trafikinfo.trafikverket.se/v2/data.json",
-    data: xmlString,
-    headers: {
-      "Content-Type": "application/xml",
-    },
-  });
+  try {
+    const trafikverketResponse = await axios({
+      method: "post",
+      url: "https://api.trafikinfo.trafikverket.se/v2/data.json",
+      data: xmlString,
+      headers: {
+        "Content-Type": "application/xml",
+      },
+      validateStatus: () => true, // Accept all HTTP status codes
+    });
 
-  const json = trafikverketResponse.data;
+    if (trafikverketResponse.status !== 200) {
+      console.error(
+        `Failed to update latest image for camera ${id}. Status: ${trafikverketResponse.status}`
+      );
+      return false;
+    }
 
-  if (!json?.RESPONSE?.RESULT?.[0]?.Camera?.[0]) {
-    console.log(`Invalid camera id. Camera id: ${id}`);
-    return;
-  }
+    const json = trafikverketResponse.data;
 
-  const image = json.RESPONSE.RESULT[0].Camera[0].PhotoUrl + "?type=fullsize";
+    if (!json?.RESPONSE?.RESULT?.[0]?.Camera?.[0]) {
+      console.log(`Invalid camera id. Camera id: ${id}`);
+      return false;
+    }
 
-  const cameraId = json.RESPONSE.RESULT[0].Camera[0].Id;
-
-  const newDate = subtractMinutes(
-    new Date(json.RESPONSE.RESULT[0].Camera[0].PhotoTime),
-    1
-  );
-
-  const imageBuffer = imageBufferMap.get(id);
-
-  if (
-    imageBuffer?.latestImageTimestamp &&
-    imageBuffer.latestImageTimestamp.getTime() == newDate.getTime()
-  ) {
-    console.log(
-      `No new image found for camera with id ${id}. Date was identical.`
+    const image = json.RESPONSE.RESULT[0].Camera[0].PhotoUrl + "?type=fullsize";
+    const cameraId = json.RESPONSE.RESULT[0].Camera[0].Id;
+    const newDate = subtractMinutes(
+      new Date(json.RESPONSE.RESULT[0].Camera[0].PhotoTime),
+      1
     );
+
+    const imageBuffer = imageBufferMap.get(id);
+
+    if (
+      imageBuffer?.latestImageTimestamp &&
+      imageBuffer.latestImageTimestamp.getTime() == newDate.getTime()
+    ) {
+      console.log(
+        `No new image found for camera with id ${id}. Date was identical.`
+      );
+      return false;
+    }
+
+    const response = await axios({
+      method: "get",
+      url: image,
+      responseType: "arraybuffer",
+      validateStatus: () => true, // Accept all HTTP status codes
+    });
+
+    if (response.status !== 200) {
+      console.error(
+        `Failed to fetch image for camera ${id}. Status: ${response.status}`
+      );
+      return false;
+    }
+
+    const newBuffer = response.data;
+
+    if (
+      imageBuffer?.latestBuffer &&
+      Buffer.compare(imageBuffer.latestBuffer, newBuffer) === 0
+    ) {
+      console.log(
+        `No new image found for camera with id ${id}. Buffer was identical.`
+      );
+      return false;
+    }
+
+    const latestImageTimestamp = subtractMinutes(
+      new Date(json.RESPONSE.RESULT[0].Camera[0].PhotoTime),
+      1
+    );
+
+    console.log(`New image found for camera with ${id}.`);
+
+    imageBufferMap.set(id, {
+      latestImageTimestamp,
+      latestBuffer: newBuffer,
+    });
+
+    await saveImageToS3(newBuffer, latestImageTimestamp, cameraId);
+    return true;
+  } catch (error) {
+    console.error("Error while updating latest image:", error);
     return false;
   }
-
-  const response = await axios({
-    method: "get",
-    url: image,
-    responseType: "arraybuffer",
-  });
-
-  const newBuffer = response.data;
-
-  if (
-    imageBuffer?.latestBuffer &&
-    Buffer.compare(imageBuffer.latestBuffer, newBuffer) === 0
-  ) {
-    console.log(
-      `No new image found for camera with id ${id}. Buffer was identical.`
-    );
-    return false;
-  }
-
-  // Parse the timestamp to a Date object and subtract 1 minute
-  const latestImageTimestamp = subtractMinutes(
-    new Date(json.RESPONSE.RESULT[0].Camera[0].PhotoTime),
-    1
-  );
-
-  console.log(`New image found for camera with ${id}.`);
-
-  const latestBuffer = response.data;
-
-  imageBufferMap.set(id, {
-    latestImageTimestamp,
-    latestBuffer,
-  });
-
-  await saveImageToS3(newBuffer, latestImageTimestamp, cameraId);
-  return true;
 }
+
 
 function subtractMinutes(date, minutes) {
   return new Date(date.getTime() - minutes * 60000);
